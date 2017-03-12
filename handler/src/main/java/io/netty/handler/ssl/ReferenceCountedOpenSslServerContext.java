@@ -17,11 +17,18 @@ package io.netty.handler.ssl;
 
 import io.netty.internal.tcnative.SSL;
 import io.netty.internal.tcnative.SSLContext;
+import io.netty.internal.tcnative.SniHostNameMatcher;
+import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.logging.InternalLogger;
+import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
+import java.util.Collection;
 import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SNIMatcher;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509ExtendedKeyManager;
@@ -40,6 +47,8 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
  * {@link ReferenceCountedOpenSslEngine} is called which uses this class's JNI resources the JVM may crash.
  */
 public final class ReferenceCountedOpenSslServerContext extends ReferenceCountedOpenSslContext {
+    private static final InternalLogger logger =
+            InternalLoggerFactory.getInstance(ReferenceCountedOpenSslServerContext.class);
     private static final byte[] ID = {'n', 'e', 't', 't', 'y'};
     private final OpenSslServerSessionContext sessionContext;
     private final OpenSslKeyMaterialManager keyMaterialManager;
@@ -169,6 +178,14 @@ public final class ReferenceCountedOpenSslServerContext extends ReferenceCounted
             } catch (Exception e) {
                 throw new SSLException("unable to setup trustmanager", e);
             }
+
+            if (PlatformDependent.javaVersion() >= 8) {
+                // Only do on Java8+ as SNIMatcher is not supported in earlier releases.
+                // IMPORTANT: The callbacks set for hostname matching must be static to prevent memory leak as
+                //            otherwise the context can never be collected. This is because the JNI code holds
+                //            a global reference to the matcher.
+                SSLContext.setSniHostnameMatcher(ctx, new OpenSslSniHostnameMatcher(engineMap));
+            }
         }
 
         result.sessionContext = new OpenSslServerSessionContext(thiz);
@@ -203,6 +220,24 @@ public final class ReferenceCountedOpenSslServerContext extends ReferenceCounted
         void verify(ReferenceCountedOpenSslEngine engine, X509Certificate[] peerCerts, String auth)
                 throws Exception {
             manager.checkClientTrusted(peerCerts, auth, engine);
+        }
+    }
+
+    private static final class OpenSslSniHostnameMatcher implements SniHostNameMatcher {
+        private final OpenSslEngineMap engineMap;
+
+        OpenSslSniHostnameMatcher(OpenSslEngineMap engineMap) {
+            this.engineMap = engineMap;
+        }
+
+        @Override
+        public boolean match(long ssl, String hostname) {
+            ReferenceCountedOpenSslEngine engine = engineMap.get(ssl);
+            if (engine != null) {
+                return engine.checkSniHostnameMatch(hostname);
+            }
+            logger.warn("No ReferenceCountedOpenSslEngine found for SSL pointer " + ssl);
+            return false;
         }
     }
 }

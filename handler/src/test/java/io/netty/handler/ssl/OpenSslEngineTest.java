@@ -568,8 +568,8 @@ public class OpenSslEngineTest extends SSLEngineTest {
         assertFalse(src.hasRemaining());
     }
 
-    @Test(expected = IllegalArgumentException.class)
-    public void testSNIMatchersThrows() throws Exception {
+    @Test
+    public void testSNIMatchersNotThrows() throws Exception {
         assumeTrue(PlatformDependent.javaVersion() >= 8);
         SelfSignedCertificate ssc = new SelfSignedCertificate();
         serverSslCtx = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey())
