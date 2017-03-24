@@ -29,10 +29,9 @@ import java.nio.ByteBuffer;
  *
  * For more details see <a href="https://github.com/netty/netty/issues/2604">#2604</a>.
  */
-final class Cleaner0 {
+final class Cleaner0 implements Cleaner {
     private static final long CLEANER_FIELD_OFFSET;
     private static final Method CLEAN_METHOD;
-    private static final boolean CLEANER_IS_RUNNABLE;
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(Cleaner0.class);
 
@@ -41,27 +40,19 @@ final class Cleaner0 {
         Field cleanerField;
         long fieldOffset = -1;
         Method clean = null;
-        boolean cleanerIsRunnable = false;
         Throwable error = null;
         if (PlatformDependent0.hasUnsafe()) {
             try {
                 cleanerField = direct.getClass().getDeclaredField("cleaner");
                 fieldOffset = PlatformDependent0.objectFieldOffset(cleanerField);
                 Object cleaner = PlatformDependent0.getObject(direct, fieldOffset);
-                try {
-                    // Cleaner implements Runnable from JDK9 onwards.
-                    Runnable runnable = (Runnable) cleaner;
-                    runnable.run();
-                    cleanerIsRunnable = true;
-                } catch (ClassCastException ignored) {
-                    clean = cleaner.getClass().getDeclaredMethod("clean");
-                    clean.invoke(cleaner);
-                }
+                clean = cleaner.getClass().getDeclaredMethod("clean");
+                clean.invoke(cleaner);
+
             } catch (Throwable t) {
                 // We don't have ByteBuffer.cleaner().
                 fieldOffset = -1;
                 clean = null;
-                cleanerIsRunnable = false;
                 error = t;
             }
         }
@@ -72,31 +63,28 @@ final class Cleaner0 {
         }
         CLEANER_FIELD_OFFSET = fieldOffset;
         CLEAN_METHOD = clean;
-        CLEANER_IS_RUNNABLE = cleanerIsRunnable;
 
         // free buffer if possible
-        freeDirectBuffer(direct);
+        freeDirectBuffer0(direct);
     }
 
-    static void freeDirectBuffer(ByteBuffer buffer) {
+    @Override
+    public void freeDirectBuffer(ByteBuffer buffer) {
+        freeDirectBuffer0(buffer);
+    }
+
+    private static void freeDirectBuffer0(ByteBuffer buffer) {
         if (CLEANER_FIELD_OFFSET == -1 || !buffer.isDirect()) {
             return;
         }
-        assert CLEAN_METHOD != null || CLEANER_IS_RUNNABLE:
-                "CLEANER_FIELD_OFFSET != -1 implies CLEAN_METHOD != null or CLEANER_IS_RUNNABLE == true";
+        assert CLEAN_METHOD != null;
         try {
             Object cleaner = PlatformDependent0.getObject(buffer, CLEANER_FIELD_OFFSET);
             if (cleaner != null) {
-                if (CLEANER_IS_RUNNABLE) {
-                    ((Runnable) cleaner).run();
-                } else {
-                    CLEAN_METHOD.invoke(cleaner);
-                }
+                CLEAN_METHOD.invoke(cleaner);
             }
         } catch (Throwable t) {
             // Nothing we can do here.
         }
     }
-
-    private Cleaner0() { }
 }
