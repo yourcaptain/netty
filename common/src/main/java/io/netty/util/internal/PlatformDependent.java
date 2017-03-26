@@ -99,6 +99,7 @@ public final class PlatformDependent {
     private static final AtomicLong DIRECT_MEMORY_COUNTER;
     private static final long DIRECT_MEMORY_LIMIT;
     private static final ThreadLocalRandomProvider RANDOM_PROVIDER;
+    private static final boolean TRY_ALLOCATE_UNINITIALIZED_ARRAY;
 
     public static final boolean BIG_ENDIAN_NATIVE_ORDER = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN;
 
@@ -157,7 +158,16 @@ public final class PlatformDependent {
         DIRECT_MEMORY_LIMIT = maxDirectMemory;
         logger.debug("io.netty.maxDirectMemory: {} bytes", maxDirectMemory);
 
+        boolean tryAllocateUninitializedArray =
+                SystemPropertyUtil.getBoolean("io.netty.tryAllocateUninitializedArray", true);
+        TRY_ALLOCATE_UNINITIALIZED_ARRAY = tryAllocateUninitializedArray && hasUnsafe();
+        logger.debug("io.netty.tryAllocateUninitializedArray: {}", tryAllocateUninitializedArray);
+
         MAYBE_SUPER_USER = maybeSuperUser0();
+    }
+
+    public static byte[] allocateUninitializedArray(int size) {
+        return TRY_ALLOCATE_UNINITIALIZED_ARRAY ? PlatformDependent0.allocateUninitializedArray(size) : new byte[size];
     }
 
     /**
